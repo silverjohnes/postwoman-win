@@ -1,0 +1,54 @@
+{
+  "name": "postwoman",
+  "productName": "Postwoman",
+  "version": "0.8.5",
+  "description": "Postman-like collection runner built on embedded Newman (Windows)",
+  "main": "src/main/main.js",
+  "author": "Postwoman",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "node scripts/build-viz.js && electron .",
+    "test": "node test/core.test.js",
+    "dist": "node scripts/build-viz.js && node scripts/gen-buildinfo.js && electron-builder --win nsis portable",
+    "build:viz": "node scripts/build-viz.js"
+  },
+  "build": {
+    "appId": "app.postwoman.win",
+    "productName": "Postwoman",
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "files": [
+      "src/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "asar": true,
+    "buildVersion": "080511",
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh",
+      "artifactName": "${productName} Setup ${version}.${buildVersion}.${ext}",
+      "uninstallDisplayName": "${productName} ${version}.${buildVersion}"
+    },
+    "portable": {
+      "artifactName": "${productName} portable ${version}.${buildVersion}.${ext}"
+    }
+  },
+  "dependencies": {
+    "newman": "^6.2.1"
+  },
+  "devDependencies": {
+    "electron": "^39.0.0",
+    "electron-builder": "^26.0.0"
+  }
+}
