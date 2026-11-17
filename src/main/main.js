@@ -13,7 +13,7 @@ const R = require('./runner');
 const U = require('./util');
 const I18N = require('../i18n');
 
-const VERSION = '0.8.5', BUILD = '080516';
+const VERSION = '0.8.5', BUILD = '080517';
 const DEFAULTS = { storagePath: '', backupEnabled: false, backupPath: '', timeoutSec: 10, historyAmount: 6, historyUnit: 'months', language: 'auto', autosave: true,
   secretMode: 'account', authSkip: false, invertScroll: false, theme: 'dark', logLevel: 'debug', runnerIntervalMs: 0, showHeadersRes: true, showHeadersReq: true, windowBounds: null };
 let settings = { ...DEFAULTS }, win = null, hotkeyWin = null, store, secrets, ctl = null, closing = false;
