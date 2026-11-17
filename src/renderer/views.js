@@ -38,6 +38,7 @@ function reqText(rec, withHeaders) {
 const isJsonResp = rec => /json/i.test(((rec.response?.headers || []).find(x => lc(x.key) === 'content-type') || {}).value || '') || /^\s*[\[{]/.test(rec.response?.body || '');
 
 // ---------- result pane (used by Request tab, Runner details, History details) ----------
+const VIZ_FRESH_MS = 8000;
 function makeResult({ onClose } = {}) {
   let rec = null, tab = 'response';
   const top = h('div', { class: 'rtitle' }); const info = h('div', { class: 'rcol', style: { flex: 'none', padding: '8px 10px 0' } }); const trow = h('div', { class: 'trow', style: { padding: '6px 10px' } }); const body = h('div', { class: 'rbody', style: { padding: '0 10px 10px' } });
@@ -73,10 +74,13 @@ function makeResult({ onClose } = {}) {
       for (const t of rec.tests || []) out.append(h('div', { style: { color: t.passed ? 'var(--ok)' : 'var(--err)' } }, (t.passed ? '✔ ' : '✘ ') + t.name + (t.error ? ' — ' + t.error : '')));
       for (const l of rec.logs || []) out.append(h('div', {}, `[${l.level}] ${l.text}`)); if (!out.children.length) out.append(h('span', { class: 'muted' }, '—')); body.append(out); }
   };
-  el.set = r => { rec = r; draw(); }; el.setTab = t => { tab = t; }; el.redraw = draw; draw(); return el;
+  // visualization policy: a result that arrived < 8 s ago opens on "Visualize" (the script runs, as before);
+  // an old result (request reopened, runner row picked, history) opens on "Response" and its script runs only after the person clicks "Visualize"
+  el.set = r => { if (r !== rec) { const fresh = !!(r && r.visualizer && r._arrived && Date.now() - r._arrived < VIZ_FRESH_MS); if (fresh) tab = 'visualize'; else if (tab === 'visualize') tab = 'response'; } rec = r; draw(); }; el.setTab = t => { tab = t; }; el.redraw = draw; draw(); return el;
 }
 function vizFrame(v) {
   const f = h('iframe', { class: 'viz', sandbox: 'allow-scripts', src: 'viz.html' });
+  // nosemgrep -- reviewed: the visualizer iframe is sandboxed without allow-same-origin: its origin is opaque, so "*" is the only possible target, and the payload is the request own data
   f.addEventListener('load', () => f.contentWindow.postMessage({ t: String(v.t ?? ''), d: v.d ?? {} }, '*'));
   return f;
 }
@@ -437,6 +441,7 @@ function wireEvents() {
   pw.onGlobals(g => { S.globals = g; if (S.tab === 'globals') renderView(); });
   pw.onRunState(s => { if (s.source === 'runner' || RS.state !== 'idle' && s.source !== 'single') { RS.state = s.state; RS.total = s.total ?? RS.total; RS.done = s.done ?? RS.done; const st = document.getElementById('runstate'); if (st) { st.textContent = `${T('runner.state.' + RS.state)} — ${RS.done}/${RS.total}`; const pb = document.getElementById('progbar'); if (pb) pb.style.width = (RS.total ? RS.done / RS.total * 100 : 0) + '%'; } if (S.tab === 'runner' && ['paused', 'running', 'stopped', 'finished'].includes(s.state) && !s.done !== undefined) { /* buttons refresh below */ } } });
   pw.onRunRecord(rec => {
+    rec._arrived = Date.now();
     if (rec.source === 'single') { S.results.set(rec.requestId, rec); const a = activeReq(); if (a && a.id === rec.requestId) { S.resultOpen = true; if (!resultEl || !resultEl.isConnected) renderView(false); else renderResult(); if (rec.visualizer && resultEl) resultEl.setTab('visualize'), renderResult(); } return; }
     RS.records.push(rec); if (RS.listEl && RS.listEl.isConnected) { RS.listEl.append(runnerRow(rec, RS.records.length - 1)); RS.followList.after(); }
   });

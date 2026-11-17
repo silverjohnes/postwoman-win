@@ -28,7 +28,7 @@
       "node_modules/**/*"
     ],
     "asar": true,
-    "buildVersion": "080511",
+    "buildVersion": "080516",
     "nsis": {
       "oneClick": false,
       "perMachine": false,
@@ -45,10 +45,10 @@
     }
   },
   "dependencies": {
-    "newman": "^6.2.1"
+    "newman": "6.2.3"
   },
   "devDependencies": {
-    "electron": "^39.0.0",
-    "electron-builder": "^26.0.0"
+    "electron": "39.8.10",
+    "electron-builder": "26.18.0"
   }
 }

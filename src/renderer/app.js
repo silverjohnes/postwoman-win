@@ -261,6 +261,7 @@ function applyParams(r, rows) { const en = rows.filter(p => !p.disabled && (p.ke
 // ---------- inputs with {{var}} highlight ----------
 function hlInput({ value = '', placeholder = '', onInput, id, type = 'text' } = {}) {
   const pre = h('pre', {}); const inp = h('input', { type, value, placeholder, spellcheck: 'false', id });
+  // nosemgrep -- reviewed: HTML is built by paint()/esc() (all text escaped) or from static icon markup; HTML is built by paint()/esc() (all text escaped), static icon markup, or runs inside the sandboxed visualizer iframe (opaque origin, by design)
   const paintIt = () => { pre.innerHTML = paint(inp.value, varTokens(inp.value), []) || ''; pre.scrollLeft = inp.scrollLeft; };
   inp.addEventListener('input', () => { paintIt(); onInput && onInput(inp.value); }); ['scroll', 'keyup', 'click', 'focus', 'mouseup'].forEach(ev => inp.addEventListener(ev, () => { pre.scrollLeft = inp.scrollLeft; }));
   const wrap = h('div', { class: 'hlin' }, pre, inp); wrap.input = inp; wrap.repaint = paintIt; paintIt(); return wrap;

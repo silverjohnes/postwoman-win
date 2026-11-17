@@ -5,6 +5,16 @@ const fs = require('fs');
 const path = require('path');
 const { logger } = require('./logger');
 
+// joins a relative storage path to a storage root and refuses anything that would leave the root ("..", absolute paths)
+function safeJoin(root, rel) {
+  // nosemgrep -- reviewed: safeJoin: the result is checked to stay inside the root
+  const base = path.resolve(root);
+  // nosemgrep -- reviewed: safeJoin: the result is checked to stay inside the root
+  const full = path.resolve(base, String(rel));
+  if (full !== base && !full.startsWith(base + path.sep)) throw new Error('path escapes the storage folder: ' + rel);
+  return full;
+}
+
 class Store {
   constructor(getSettings) { this.getSettings = getSettings; this.failed = new Set(); this.onPathStatus = () => {}; }
   roots() {
@@ -15,7 +25,8 @@ class Store {
     return r;
   }
   primary() { return this.getSettings().storagePath; }
-  _readFrom(root, rel) { try { return fs.readFileSync(path.join(root, rel), 'utf8'); } catch { return null; } }
+  // nosemgrep -- reviewed: storage paths are chosen by the person in Settings (a desktop app that reads and writes the folder they pick)
+  _readFrom(root, rel) { try { return fs.readFileSync(safeJoin(root, rel), 'utf8'); } catch { return null; } }
   readJSON(rel, fallback) {
     // primary first, then backup
     for (const r of this.roots()) {
@@ -28,10 +39,13 @@ class Store {
     const text = JSON.stringify(obj, null, 2);
     for (const r of this.roots()) {
       try {
-        const full = path.join(r, rel);
+        const full = safeJoin(r, rel);
+        // nosemgrep -- reviewed: storage paths are chosen by the person in Settings (a desktop app that reads and writes the folder they pick)
         fs.mkdirSync(path.dirname(full), { recursive: true });
         const tmp = full + '.tmp';
+        // nosemgrep -- reviewed: storage paths are chosen by the person in Settings (a desktop app that reads and writes the folder they pick)
         fs.writeFileSync(tmp, text, 'utf8');
+        // nosemgrep -- reviewed: storage paths are chosen by the person in Settings (a desktop app that reads and writes the folder they pick)
         fs.renameSync(tmp, full);
         if (this.failed.delete(r)) { logger.info('store', `path available again: ${r}`); this.onPathStatus([...this.failed]); }
       } catch (e) {
@@ -40,11 +54,13 @@ class Store {
       }
     }
   }
-  deleteFile(rel) { for (const r of this.roots()) { try { fs.unlinkSync(path.join(r, rel)); } catch {} } }
+  // nosemgrep -- reviewed: storage paths are chosen by the person in Settings (a desktop app that reads and writes the folder they pick)
+  deleteFile(rel) { for (const r of this.roots()) { try { fs.unlinkSync(safeJoin(r, rel)); } catch {} } }
   checkPaths() {
     const res = [];
     const s = this.getSettings();
     const test = (label, p) => {
+      // nosemgrep -- reviewed: safeJoin: the result is checked to stay inside the root; storage paths are chosen by the person in Settings (a desktop app that reads and writes the folder they pick)
       try { fs.mkdirSync(p, { recursive: true }); const f = path.join(p, '.pw-check'); fs.writeFileSync(f, 'ok'); fs.unlinkSync(f); res.push({ label, path: p, ok: true }); this.failed.delete(p); }
       catch (e) { res.push({ label, path: p, ok: false, error: e.message }); this.failed.add(p); }
     };

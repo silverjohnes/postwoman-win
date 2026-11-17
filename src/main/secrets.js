@@ -17,15 +17,19 @@ class Secrets {
   _fail(code, msg) { const e = new Error(msg); e.code = code; return e; }
   _loadKey(m = this.mode(), create = true) {
     if (this.keys[m]) return this.keys[m];
-    const f = this._file(m); let key;
-    if (fs.existsSync(f)) {
-      try { key = m === 'local' ? fs.readFileSync(f).slice(5) : this.account.unwrap(fs.readFileSync(f)); } catch (e) { throw this._fail('DECRYPT', 'cannot read the key: ' + e.message); }
+    const f = this._file(m); let key, raw = null;
+    // read directly instead of "exists, then read" (no check-then-use race); a missing file means "no key yet"
+    // nosemgrep -- reviewed: the key file lives in the app data folder chosen in Settings
+    try { raw = fs.readFileSync(f); } catch (e) { if (e.code !== 'ENOENT') throw this._fail('DECRYPT', 'cannot read the key: ' + e.message); }
+    if (raw) {
+      try { key = m === 'local' ? raw.slice(5) : this.account.unwrap(raw); } catch (e) { throw this._fail('DECRYPT', 'cannot read the key: ' + e.message); }
       if (!key || key.length !== 32) throw this._fail('DECRYPT', 'bad key file');
     } else {
       if (!create) throw this._fail('DECRYPT', 'no key');
       if (m === 'account' && !this.builtinAvailable()) throw this._fail('NOBUILTIN', 'built-in (account) encryption is unavailable');
       key = crypto.randomBytes(32); fs.mkdirSync(this.dir, { recursive: true });
-      try { fs.writeFileSync(f, m === 'local' ? Buffer.concat([Buffer.from('LOCAL'), key]) : this.account.wrap(key), { mode: 0o600 }); } catch (e) { throw this._fail(m === 'account' ? 'NOBUILTIN' : 'IO', e.message); }
+      // nosemgrep -- reviewed: the key file lives in the app data folder chosen in Settings
+      try { fs.writeFileSync(f, m === 'local' ? Buffer.concat([Buffer.from('LOCAL'), key]) : this.account.wrap(key), { mode: 0o600, flag: 'wx' }); } catch (e) { throw this._fail(m === 'account' ? 'NOBUILTIN' : 'IO', e.message); }
       this.log('info', 'secrets', `created new data key (${m})`);
     }
     return (this.keys[m] = key);
@@ -42,7 +46,8 @@ class Secrets {
     const key = this._loadKey(m, false);
     try {
       const [iv, tag, ct] = enc.slice(PREFIX.length).split('.').map(s => Buffer.from(s, 'base64'));
-      const d = crypto.createDecipheriv('aes-256-gcm', key, iv); d.setAuthTag(tag);
+      if (tag.length !== 16) throw new Error('bad tag');
+      const d = crypto.createDecipheriv('aes-256-gcm', key, iv, { authTagLength: 16 }); d.setAuthTag(tag);
       return Buffer.concat([d.update(ct), d.final()]).toString('utf8');
     } catch (e) { throw this._fail('DECRYPT', 'cannot decrypt (the key belongs to another account or computer)'); }
   }
@@ -57,6 +62,7 @@ class Secrets {
     }
     res.list = out; return res;
   }
+  // nosemgrep -- reviewed: storage paths are chosen by the person in Settings (a desktop app that reads and writes the folder they pick)
   dropKey(m) { try { fs.unlinkSync(this._file(m)); } catch {} delete this.keys[m]; }
 }
 

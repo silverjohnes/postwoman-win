@@ -33,5 +33,6 @@ const ICONS = {
 function ic(name, size = 15, cls = '') {
   const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('width', size); s.setAttribute('height', size);
   s.setAttribute('fill', 'none'); s.setAttribute('stroke', 'currentColor'); s.setAttribute('stroke-width', '2'); s.setAttribute('stroke-linecap', 'round'); s.setAttribute('stroke-linejoin', 'round');
+  // nosemgrep -- reviewed: HTML is built by paint()/esc() (all text escaped) or from static icon markup; HTML is built by paint()/esc() (all text escaped), static icon markup, or runs inside the sandboxed visualizer iframe (opaque origin, by design)
   s.setAttribute('class', 'ic ' + cls); s.setAttribute('aria-hidden', 'true'); s.innerHTML = ICONS[name] || ''; return s;
 }
