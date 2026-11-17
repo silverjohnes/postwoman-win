@@ -9,15 +9,18 @@ on:
   schedule:
     - cron: '0 4 * * 1'
 
+# minimal rights by default; each job asks only for what it needs
 permissions:
   contents: read
-  security-events: write
-  actions: read
 
 jobs:
   codeql:
     name: CodeQL SAST
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
 
     steps:
       - name: Checkout
@@ -26,8 +29,9 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
-          languages: javascript-typescript
+          languages: javascript-typescript, actions
           build-mode: none
+          queries: security-extended
 
       - name: Analyze
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
@@ -35,6 +39,8 @@ jobs:
   semgrep:
     name: Semgrep SAST
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
