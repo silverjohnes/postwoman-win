@@ -114,6 +114,32 @@ function isJson(t) { try { JSON.parse(t); return true; } catch { return false; }
 const looksJson = t => /^\s*[\[{]/.test(t);
 
 // ---------- find helpers ----------
+// Text between the quotes (" or ') of the string literal on the current line that contains offset `pos`; escaped quotes (\" \') do not count.
+// Returns [start, end] of the inside of the quotes, or null when `pos` is not inside / on the quotes of a closed string.
+function quotedRange(text, pos) {
+  const ls = text.lastIndexOf('\n', pos - 1) + 1; let le = text.indexOf('\n', pos); if (le < 0) le = text.length;
+  let q = null, open = -1;
+  for (let i = ls; i < le; i++) {
+    const c = text[i];
+    if (c === '\\') { i++; continue; } // the next character is escaped
+    if (q === null) { if (c === '"' || c === "'") { q = c; open = i; } }
+    else if (c === q) { if (pos >= open && pos <= i + 1) return [open + 1, i]; q = null; }
+  }
+  return null;
+}
+// ---------- triple click on rendered (non-textarea) text: select the text inside the quotes under the pointer ----------
+function domPoint(root, idx) { const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT); let n, acc = 0, last = null; while ((n = w.nextNode())) { last = n; const l = n.nodeValue.length; if (idx <= acc + l) return [n, idx - acc]; acc += l; } return last ? [last, last.nodeValue.length] : [root, 0]; }
+function domIndex(root, node, off) { const r = document.createRange(); r.selectNodeContents(root); r.setEnd(node, off); return r.toString().length; }
+function caretAt(x, y) { if (document.caretPositionFromPoint) { const p = document.caretPositionFromPoint(x, y); return p ? [p.offsetNode, p.offset] : null; } const r = document.caretRangeFromPoint && document.caretRangeFromPoint(x, y); return r ? [r.startContainer, r.startOffset] : null; }
+function setDomSelection(a, b) { const r = document.createRange(); r.setStart(a[0], a[1]); r.setEnd(b[0], b[1]); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+// a single-line element (log line, request line): returns true when it handled the click
+function tripleQuoteLine(e, line) {
+  if (e.detail !== 3 || e.button !== 0) return false;
+  const c = caretAt(e.clientX, e.clientY); if (!c || !line.contains(c[0])) return false;
+  const r = quotedRange(line.textContent, domIndex(line, c[0], c[1])); if (!r || r[0] === r[1]) return false;
+  e.preventDefault(); setDomSelection(domPoint(line, r[0]), domPoint(line, r[1])); return true;
+}
+if (typeof document !== 'undefined') document.addEventListener('mousedown', e => { const t = e.target; if (e.detail === 3 && t && t.closest) { const ln = t.closest('#logpre > div, .rline'); if (ln) tripleQuoteLine(e, ln); } }, true);
 function findAll(text, variants, limit = 20000) {
   const low = text.toLowerCase(), res = [];
   for (const v of variants) { let p = 0; while ((p = low.indexOf(v, p)) >= 0 && res.length < limit) { res.push({ s: p, e: p + v.length }); p += Math.max(1, v.length); } }
@@ -140,6 +166,14 @@ class CodeEditor {
     ta.addEventListener('scroll', () => { this.pre.scrollTop = ta.scrollTop; this.pre.scrollLeft = ta.scrollLeft; if (this._big && !this._raf) this._raf = requestAnimationFrame(() => { this._raf = 0; this._winCheck(); }); });
     ta.addEventListener('keydown', e => this._key(e));
     ta.addEventListener('keyup', () => this._occ()); ta.addEventListener('mouseup', () => this._occ());
+    // triple click: select the text inside the quotes under the cursor instead of the whole line (double click still selects a word).
+    // The double click that precedes it has already put the caret/selection at the clicked place.
+    ta.addEventListener('mousedown', e => {
+      if (e.detail !== 3 || e.button !== 0) return;
+      const r = quotedRange(ta.value, Math.min(ta.selectionStart, ta.selectionEnd));
+      if (!r || r[0] === r[1]) return; // not in a string: the default (select the line) applies
+      e.preventDefault(); ta.setSelectionRange(r[0], r[1]); this._occ();
+    });
   }
   _key(e) {
     const ta = this.ta;
@@ -256,6 +290,7 @@ class Viewer {
       if ((e.ctrlKey || e.metaKey) && e.code === 'KeyC' && !String(getSelection()).length) { e.preventDefault(); this.copyAll(); }
     });
     this.sc.addEventListener('mouseup', () => this._occ());
+    this.sc.addEventListener('mousedown', e => this._tripleQuote(e));
     new ResizeObserver(() => this.draw()).observe(this.sc);
   }
   setText(text, { format = true, notice } = {}) {
@@ -266,6 +301,20 @@ class Viewer {
     this.maxLen = this.rows.reduce((m, r) => Math.max(m, r.length), 0); this.spacer.style.height = this.rows.length * ROW_H + 'px'; this.spacer.style.width = Math.max(this.maxLen * CH_W + 24, 10) + 'px';
     this.note.textContent = note; this.note.classList.toggle('hidden', !note);
     this.compute(); this.sc.scrollTop = 0; this.draw();
+  }
+  // text offset <-> DOM point inside the rendered window (rows are absolutely positioned, one per line chunk)
+  _rowIdx(el) { return Math.round(parseFloat(el.style.top) / ROW_H); }
+  _absOf(node, off) { const row = (node.nodeType === 3 ? node.parentElement : node).closest ? (node.nodeType === 3 ? node.parentElement : node).closest('.vv-row') : null; if (!row || !this.layer.contains(row)) return null; return (this.rowStart[this._rowIdx(row)] ?? 0) + domIndex(row, node, off); }
+  _pointOf(off) {
+    const rows = [...this.layer.children]; if (!rows.length) return null; const first = this._rowIdx(rows[0]), last = this._rowIdx(rows[rows.length - 1]);
+    const i = Math.min(last, Math.max(first, this.rowOf(off))); const col = Math.min(Math.max(0, off - this.rowStart[i]), this.rows[i].length); return domPoint(rows[i - first], col);
+  }
+  // triple click: select the text inside the quotes under the pointer (not the whole line); double click still selects a word
+  _tripleQuote(e) {
+    if (e.detail !== 3 || e.button !== 0 || !this.rows.length) return;
+    const c = caretAt(e.clientX, e.clientY); if (!c) return; const abs = this._absOf(c[0], c[1]); if (abs === null) return;
+    const r = quotedRange(this.text, abs); if (!r || r[0] === r[1]) return;
+    e.preventDefault(); setDomSelection(this._pointOf(r[0]), this._pointOf(r[1]));
   }
   get plain() { return this.text || ''; }
   copyAll() { window.pw.clipboard(this.plain); toast(window.T ? T('msg.copied') : 'Copied'); }
@@ -292,8 +341,12 @@ class Viewer {
       // nosemgrep -- reviewed: interpolated values are numbers or escaped text
       html += `<div class="vv-row" style="top:${r * ROW_H}px">${paint(line, lt, lm) || ' '}</div>`; off += line.length + 1;
     }
+    // keep the person's text selection across re-renders (scrolling, occurrence highlighting): remember it as text offsets, restore it after
+    let keep = null; const sel = getSelection();
+    if (sel.rangeCount && !sel.isCollapsed && this.layer.contains(sel.anchorNode) && this.layer.contains(sel.focusNode)) { const r0 = sel.getRangeAt(0); const s0 = this._absOf(r0.startContainer, r0.startOffset), e0 = this._absOf(r0.endContainer, r0.endOffset); if (s0 !== null && e0 !== null) keep = [s0, e0]; }
     // nosemgrep -- reviewed: HTML is built by paint()/esc() (all text escaped) or from static icon markup; HTML is built by paint()/esc() (all text escaped), static icon markup, or runs inside the sandboxed visualizer iframe (opaque origin, by design)
     this.layer.innerHTML = html;
+    if (keep) { const p0 = this._pointOf(keep[0]), p1 = this._pointOf(keep[1]); if (p0 && p1) setDomSelection(p0, p1); }
   }
   _markers() {
     this.markers.textContent = ''; const all = this.matches.length ? this.matches : this.occ; if (!all.length) return; const seen = new Set(); const tot = this.rows.length || 1;
@@ -301,4 +354,4 @@ class Viewer {
   }
 }
 let _toastT; function toast(msg) { let t = document.getElementById('toast'); if (!t) { t = h('div', { id: 'toast' }); document.body.append(t); } t.textContent = msg; t.classList.add('on'); clearTimeout(_toastT); _toastT = setTimeout(() => t.classList.remove('on'), 1600); }
-if (typeof module !== 'undefined') module.exports = { beautify, tokenize, queryVariants, findAll };
+if (typeof module !== 'undefined') module.exports = { beautify, tokenize, queryVariants, findAll, quotedRange };
