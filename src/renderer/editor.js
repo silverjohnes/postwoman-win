@@ -127,6 +127,30 @@ function quotedRange(text, pos) {
   }
   return null;
 }
+// ---------- links: http(s) URLs are underlined and open on Ctrl+click ----------
+const LINK_RE = /https?:\/\/[^\s"'<>`\\{}|^]+/g;
+function findLinks(text) {
+  const out = []; LINK_RE.lastIndex = 0; let m;
+  while ((m = LINK_RE.exec(text)) && out.length < 5000) {
+    let u = m[0]; while (/[.,;:!?'")\]]$/.test(u) && !(u.endsWith(')') && (u.match(/\(/g) || []).length >= (u.match(/\)/g) || []).length)) u = u.slice(0, -1);
+    if (u.length > 8) out.push({ s: m.index, e: m.index + u.length, url: u });
+  }
+  return out;
+}
+function linkAt(text, pos) { for (const l of findLinks(text)) if (pos >= l.s && pos <= l.e) return l; return null; }
+function openLink(url) { if (/^https?:\/\//i.test(url) && window.pw && pw.openLink) pw.openLink(url); }
+// fills a line element with text, wrapping links into underlined spans
+function linkifyInto(el, text) {
+  let i = 0; for (const l of findLinks(text)) { if (l.s > i) el.append(text.slice(i, l.s)); const a = document.createElement('span'); a.className = 'mk-link'; a.textContent = text.slice(l.s, l.e); el.append(a); i = l.e; }
+  if (i < text.length) el.append(text.slice(i)); return el;
+}
+if (typeof document !== 'undefined') {
+  const ctrl = e => document.body && document.body.classList.toggle('ctrl-down', e.ctrlKey || e.metaKey);
+  document.addEventListener('keydown', ctrl, true); document.addEventListener('keyup', ctrl, true); window.addEventListener('blur', () => document.body && document.body.classList.remove('ctrl-down'));
+  // log / runner lines
+  document.addEventListener('click', e => { if (!(e.ctrlKey || e.metaKey) || e.button !== 0) return; const t = e.target; const ln = t && t.closest && t.closest('#logpre > div, .rline'); if (!ln) return; const c = caretAt(e.clientX, e.clientY); if (!c || !ln.contains(c[0])) return; const l = linkAt(ln.textContent, domIndex(ln, c[0], c[1])); if (l) { e.preventDefault(); openLink(l.url); } }, true);
+}
+
 // ---------- triple click on rendered (non-textarea) text: select the text inside the quotes under the pointer ----------
 function domPoint(root, idx) { const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT); let n, acc = 0, last = null; while ((n = w.nextNode())) { last = n; const l = n.nodeValue.length; if (idx <= acc + l) return [n, idx - acc]; acc += l; } return last ? [last, last.nodeValue.length] : [root, 0]; }
 function domIndex(root, node, off) { const r = document.createRange(); r.selectNodeContents(root); r.setEnd(node, off); return r.toString().length; }
@@ -165,6 +189,7 @@ class CodeEditor {
     ta.addEventListener('input', () => { this.render(); this.onChange && this.onChange(ta.value); });
     ta.addEventListener('scroll', () => { this.pre.scrollTop = ta.scrollTop; this.pre.scrollLeft = ta.scrollLeft; if (this._big && !this._raf) this._raf = requestAnimationFrame(() => { this._raf = 0; this._winCheck(); }); });
     ta.addEventListener('keydown', e => this._key(e));
+    ta.addEventListener('click', e => { if (!(e.ctrlKey || e.metaKey) || ta.selectionStart !== ta.selectionEnd) return; const l = linkAt(ta.value, ta.selectionStart); if (l) { e.preventDefault(); openLink(l.url); } });
     ta.addEventListener('keyup', () => this._occ()); ta.addEventListener('mouseup', () => this._occ());
     // triple click: select the text inside the quotes under the cursor instead of the whole line (double click still selects a word).
     // The double click that precedes it has already put the caret/selection at the clicked place.
@@ -224,6 +249,7 @@ class CodeEditor {
   _lineOf(off) { const ls = this._lines(); let lo = 0, hi = ls.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (ls[m] <= off) lo = m; else hi = m - 1; } return lo; }
   render() {
     const t = this.ta.value; const marks = this.matches.map((m, i) => ({ s: m.s, e: m.e, c: i === this.cur ? 'mk-cur' : 'mk-find' })).concat(this.occ.map(m => ({ s: m.s, e: m.e, c: 'mk-occ' })));
+    if (t.length <= BIG_TEXT) for (const l of findLinks(t)) marks.push({ s: l.s, e: l.e, c: 'mk-link' });
     if (t.length > BIG_TEXT) { this._big = true; this._renderWindow(t, marks); }
     else {
       this._big = false;
@@ -244,6 +270,7 @@ class CodeEditor {
     const from = ls[a] ?? 0, to = b < n ? ls[b] - 1 : t.length;
     const seg = t.slice(from, to); const huge = seg.length > 300000;
     const toks = huge ? [] : (this.lang === 'text' ? varTokens(seg) : tokenize(seg, this.lang));
+    for (const l of findLinks(seg)) marks.push({ s: l.s + from, e: l.e + from, c: 'mk-link' });
     const mk = marks.filter(m => m.e > from && m.s < to).map(m => ({ s: Math.max(m.s, from) - from, e: Math.min(m.e, to) - from, c: m.c }));
     this._lw = [a, b];
     // nosemgrep -- reviewed: HTML is built by paint()/esc() (all text escaped) or from static icon markup; HTML is built by paint()/esc() (all text escaped), static icon markup, or runs inside the sandboxed visualizer iframe (opaque origin, by design); interpolated values are numbers or escaped text
@@ -291,6 +318,7 @@ class Viewer {
     });
     this.sc.addEventListener('mouseup', () => this._occ());
     this.sc.addEventListener('mousedown', e => this._tripleQuote(e));
+    this.sc.addEventListener('click', e => { if (!(e.ctrlKey || e.metaKey) || e.button !== 0) return; const c = caretAt(e.clientX, e.clientY); if (!c) return; const abs = this._absOf(c[0], c[1]); if (abs === null) return; const l = linkAt(this.text || '', abs); if (l) { e.preventDefault(); openLink(l.url); } });
     new ResizeObserver(() => this.draw()).observe(this.sc);
   }
   setText(text, { format = true, notice } = {}) {
@@ -331,6 +359,7 @@ class Viewer {
     const top = this.sc.scrollTop, hgt = this.sc.clientHeight || 400; const a = Math.max(0, Math.floor(top / ROW_H) - 20), b = Math.min(this.rows.length, Math.ceil((top + hgt) / ROW_H) + 20);
     const marks = []; const add = (list, cls, curIdx) => { if (!list.length) return; const ra = this.rowStart[a] ?? 0, rb = (this.rowStart[b - 1] ?? 0) + (this.rows[b - 1] || '').length; list.forEach((m, i) => { if (m.e >= ra && m.s <= rb) marks.push({ s: m.s, e: m.e, c: curIdx === i ? 'mk-cur' : cls }); }); };
     add(this.matches, 'mk-find', this.cur); add(this.occ, 'mk-occ', -1);
+    { const ra = this.rowStart[a] ?? 0, rb = (this.rowStart[b - 1] ?? 0) + (this.rows[b - 1] || '').length; if (this._lk === undefined || this._lkText !== this.text) { this._lk = findLinks(this.text || ''); this._lkText = this.text; } for (const l of this._lk) if (l.e >= ra && l.s <= rb) marks.push({ s: l.s, e: l.e, c: 'mk-link' }); }
     let html = ''; const fmt = this.lang === 'json' ? 'json' : this.lang;
     // tokenise the visible window as a single block so multi-line strings/comments stay right enough
     const block = this.rows.slice(a, b).join('\n'); const base = this.rowStart[a] ?? 0; const toks = this.lang === 'text' ? varTokens(block) : tokenize(block, fmt === 'json' ? 'json' : fmt);
@@ -354,4 +383,4 @@ class Viewer {
   }
 }
 let _toastT; function toast(msg) { let t = document.getElementById('toast'); if (!t) { t = h('div', { id: 'toast' }); document.body.append(t); } t.textContent = msg; t.classList.add('on'); clearTimeout(_toastT); _toastT = setTimeout(() => t.classList.remove('on'), 1600); }
-if (typeof module !== 'undefined') module.exports = { beautify, tokenize, queryVariants, findAll, quotedRange };
+if (typeof module !== 'undefined') module.exports = { beautify, tokenize, queryVariants, findAll, quotedRange, findLinks };

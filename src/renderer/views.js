@@ -50,7 +50,7 @@ function makeResult({ onClose } = {}) {
     if (!rec) { body.append(h('div', { class: 'empty' }, T('res.noResult'))); return; }
     if (rec.pending) { body.append(h('div', { class: 'row', style: { padding: '8px 0', gap: '10px' } }, ic('spinner', 16, 'spin'), h('span', { class: 'muted' }, LM('Sending request…')), h('div', { style: { flex: 1 } }), h('button', { class: 'dst', onClick: () => pw.runStop() }, LM('Stop')))); return; }
     const r = rec.response;
-    info.append(h('div', { class: 'rline' }, `${rec.method || ''} ${rec.url || ''}`));
+    info.append(linkifyInto(h('div', { class: 'rline' }), `${rec.method || ''} ${rec.url || ''}`));
     const st = [r ? (r.status || '') : '', r ? `${r.time} ms` : '', stamp(rec.time)].filter(Boolean).join(' · ') + (rec.iteration > 0 ? LM(' · iteration %ld', rec.iteration) : '') + (r && r.size ? ' · ' + fmtSize(r.size) : '');
     info.append(h('div', { class: 'rstat' }, statusChip(r ? r.code : 0, '', { large: true }), h('span', { class: 'st' }, st)));
     if (rec.data && Object.keys(rec.data).length) info.append(h('div', { class: 'hint' }, LM('data: ') + Object.keys(rec.data).sort().map(k => `${k}=${rec.data[k]}`).join(', ')));
@@ -252,7 +252,7 @@ const LOGORDER = ['debug', 'info', 'warn', 'error']; const LOG = { entries: [], 
 const fmtLog = e => `${new Date(e.t).toLocaleTimeString()}.${String(e.t % 1000).padStart(3, '0')} [${e.level.toUpperCase()}] ${e.scope}: ${e.msg}`;
 const logVisible = e => LOGORDER.indexOf(e.level) >= LOGORDER.indexOf(LOG.level) && (!LOG.filter || fmtLog(e).toLowerCase().includes(LOG.filter));
 const logCount = () => { if (LOG.cnt && LOG.el) LOG.cnt.textContent = `${LOG.el.childElementCount} / ${LOG.entries.length}`; };
-function addLogLine(e) { if (!LOG.el || !logVisible(e)) { logCount(); return; } LOG.el.append(h('div', { class: 'lv-' + e.level }, fmtLog(e))); while (LOG.el.childElementCount > 6000) LOG.el.firstChild.remove(); LOG.follow.after(); logCount(); }
+function addLogLine(e) { if (!LOG.el || !logVisible(e)) { logCount(); return; } LOG.el.append(linkifyInto(h('div', { class: 'lv-' + e.level }), fmtLog(e))); while (LOG.el.childElementCount > 6000) LOG.el.firstChild.remove(); LOG.follow.after(); logCount(); }
 function logView() {
   const root = h('div', { class: 'pane', style: { padding: '14px', gap: '8px' } }); const pre = h('div', { id: 'logpre' }); LOG.el = pre; LOG.follow = followScroll(pre); LOG.level = S.settings.logMinLevel || 'debug';
   const refill = () => { pre.textContent = ''; LOG.entries.forEach(addLogLine); LOG.follow.reset(); logCount(); };

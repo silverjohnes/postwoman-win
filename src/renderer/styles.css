@@ -238,3 +238,5 @@ select option,select optgroup{background:var(--bg2);color:var(--tx)}
 #menudrop .mi .acc,#ctx .ck{color:var(--tx2)}
 #ctx .ck{width:16px;display:inline-block}
 ::-webkit-scrollbar-thumb{background:var(--fill3)}::-webkit-scrollbar-thumb:hover{background:var(--tx2)}
+
+.mk-link{text-decoration:underline;text-underline-offset:2px}body.ctrl-down .mk-link{cursor:pointer}

@@ -13,7 +13,7 @@ const R = require('./runner');
 const U = require('./util');
 const I18N = require('../i18n');
 
-const VERSION = '0.8.5', BUILD = '080520';
+const VERSION = '0.8.5', BUILD = '080521';
 const DEFAULTS = { storagePath: '', backupEnabled: false, backupPath: '', timeoutSec: 10, historyAmount: 6, historyUnit: 'months', language: 'auto', autosave: true,
   secretMode: 'account', authSkip: false, invertScroll: false, theme: 'dark', logLevel: 'debug', runnerIntervalMs: 0, showHeadersRes: true, showHeadersReq: true, windowBounds: null };
 let settings = { ...DEFAULTS }, win = null, hotkeyWin = null, store, secrets, ctl = null, closing = false;
@@ -156,6 +156,7 @@ function registerIpc() {
   h('auth:status', () => ({ skip: !!settings.authSkip }));
   h('auth:reset', () => { settings.authSkip = false; sessionAuthed = false; saveSettings(); logger.info('auth', 'prompt re-enabled'); return { skip: false }; });
   h('win:theme', id => applyTheme(id));
+  h('link:open', (url) => { if (typeof url === 'string' && /^https?:\/\/[^\s]+$/i.test(url) && url.length < 4000) shell.openExternal(url); }); // only http(s) links, from Ctrl+click on a URL
   h('win:role', (role) => { const wc = win && win.webContents; if (!wc) return; const act = new Map([['cut', () => wc.cut()], ['copy', () => wc.copy()], ['paste', () => wc.paste()], ['selectAll', () => wc.selectAll()], ['fullscreen', () => win.setFullScreen(!win.isFullScreen())], ['minimize', () => win.minimize()], ['maximize', () => (win.isMaximized() ? win.unmaximize() : win.maximize())], ['quit', () => win.close()], ['hotkeys', () => openHotkeys()]]).get(role); if (act) act(); }); // whitelist of window roles: only these names can be run from the renderer
   // logs
   h('log:clear', () => { logger.entries.length = 0; return true; });

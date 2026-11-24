@@ -149,6 +149,18 @@ const srv = http.createServer((q, r) => { let b = ''; q.on('data', d => b += d);
     await runNode({ ...common, col: c3, nodeId: null, globals: [], iterations: 1, intervalMs: 0, ctl: new RunController(), onRecord: r => recs.push(r) });
     assert.strictEqual(recs[0].response.size, 1000450 - 0 + 0 || 1000450, 'size ' + recs[0].response.size); assert.strictEqual(recs[0].response.body.length, 1000450);
   });
+  await t('triple click helper: text inside the quotes under the caret, escaped quotes ignored', async () => {
+    const { quotedRange } = require('../src/renderer/editor.js');
+    const sl = (x, pos) => { const r = quotedRange(x, pos); return r && x.slice(r[0], r[1]); };
+    const j = '  "name": "va\\"l ue", \'single\': 1\nnext "line"';
+    assert.strictEqual(sl(j, j.indexOf('name') + 1), 'name');
+    assert.strictEqual(sl(j, j.indexOf('va') + 1), 'va\\"l ue');
+    assert.strictEqual(sl(j, j.indexOf('l ue')), 'va\\"l ue');
+    assert.strictEqual(sl(j, j.indexOf('single') + 2), 'single');
+    assert.strictEqual(sl(j, j.indexOf(': 1') + 2), null); // between strings
+    assert.strictEqual(sl(j, j.indexOf('line') + 1), 'line'); // other line
+    assert.strictEqual(sl('it\'s "x"', 1), null); // lone apostrophe never closes
+  });
   await t('beautify: 1 MB JSON in linear time, comments untouched, invalid JSON formatted leniently', async () => {
     const { beautify } = require('../src/renderer/editor.js');
     const big = JSON.stringify(Array.from({ length: 30000 }, (_, i) => ({ i, name: 'item' + i }))); const t0 = Date.now(); const r = beautify(big);
