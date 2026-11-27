@@ -28,7 +28,7 @@
       "node_modules/**/*"
     ],
     "asar": true,
-    "buildVersion": "080521",
+    "buildVersion": "080522",
     "nsis": {
       "oneClick": false,
       "perMachine": false,

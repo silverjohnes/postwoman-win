@@ -149,6 +149,11 @@ const srv = http.createServer((q, r) => { let b = ''; q.on('data', d => b += d);
     await runNode({ ...common, col: c3, nodeId: null, globals: [], iterations: 1, intervalMs: 0, ctl: new RunController(), onRecord: r => recs.push(r) });
     assert.strictEqual(recs[0].response.size, 1000450 - 0 + 0 || 1000450, 'size ' + recs[0].response.size); assert.strictEqual(recs[0].response.body.length, 1000450);
   });
+  await t('URL line triple click: the part between two slashes', async () => {
+    const { slashRange } = require('../src/renderer/editor.js'); const u = 'https://api.example.com/v1/users/42?x=1';
+    const sl = pos => { const r = slashRange(u, pos); return r && u.slice(r[0], r[1]); };
+    assert.strictEqual(sl(u.indexOf('example')), 'api.example.com'); assert.strictEqual(sl(u.indexOf('v1')), 'v1'); assert.strictEqual(sl(u.indexOf('users') + 2), 'users'); assert.strictEqual(sl(u.indexOf('42')), '42?x=1'); assert.strictEqual(sl(u.indexOf('//') + 1), null);
+  });
   await t('triple click helper: text inside the quotes under the caret, escaped quotes ignored', async () => {
     const { quotedRange } = require('../src/renderer/editor.js');
     const sl = (x, pos) => { const r = quotedRange(x, pos); return r && x.slice(r[0], r[1]); };

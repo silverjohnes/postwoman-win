@@ -10,7 +10,7 @@ const isFolder = n => Array.isArray(n.item);
 const uuid = () => crypto.randomUUID();
 const debounce = (f, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => f(...a), ms); }; };
 // ---------- texts taken over from the macOS version (keys are the English texts of its Localizable.strings) ----------
-const LM = (s, ...a) => { const code = T.lang === 'zh' ? 'zh-Hans' : T.lang; const m = (window.LANG_MAC || {})[code]; let out = (m && m[s] != null) ? m[s] : s; let i = 0; return out.replace(/%(?:(\d+)\$)?(?:@|ld)/g, (x, p) => String(a[p ? p - 1 : i++] ?? '')); };
+const LM = (s, ...a) => { const code = T.lang === 'zh' ? 'zh-Hans' : T.lang; const m = (window.LANG_MAC || {})[code]; let out = (m && m[s] != null) ? m[s] : (s === 'Globals' ? 'Variables' : s); let i = 0; return out.replace(/%(?:(\d+)\$)?(?:@|ld)/g, (x, p) => String(a[p ? p - 1 : i++] ?? '')); };
 const tabStrip = (items, cur, onSel) => h('div', { class: 'tabstrip' }, items.map(([k, l]) => h('button', { class: 'tab' + (cur === k ? ' on' : ''), onClick: () => onSel(k) }, l)));
 const iconBtn = (name, title, fn, cls = '', size = 16) => h('button', { class: 'ib ' + cls, title, onClick: fn }, ic(name, size));
 function popMenu(anchor, entries) { closeCtx(); const r = anchor.getBoundingClientRect(); const m = h('div', { class: 'ctx', id: 'ctx' }, entries.map(([label, fn]) => h('div', { onClick: () => { closeCtx(); fn(); } }, h('span', {}, label)))); m.style.left = Math.min(r.left, innerWidth - 230) + 'px'; document.body.append(m); const hh = m.offsetHeight; m.style.top = (r.top - hh - 4 > 0 ? r.top - hh - 4 : r.bottom + 4) + 'px'; armCtx(); }
@@ -280,19 +280,44 @@ document.addEventListener('keydown', e => {
 }, true);
 document.addEventListener('mousedown', () => { wrapState = null; }, true);
 
+// ---------- resizable "name" column of the key/value tables ----------
+// default width fits the longest name; a width dragged by hand is remembered per request (r._pw.kvw); double click on the bar returns to auto
+function kvAutoWidth(keys) {
+  const c = kvAutoWidth.cx || (kvAutoWidth.cx = document.createElement('canvas').getContext('2d')); c.font = '13px ' + (getComputedStyle(document.documentElement).getPropertyValue('--mono') || 'monospace');
+  let w = 0; for (const k of keys) w = Math.max(w, c.measureText(k || '').width);
+  return Math.min(480, Math.max(110, Math.ceil(w) + 34));
+}
+function kvColumns(tb, widths, getKeys, store) {
+  // widths: fixed px / null (flexible) for every column; index 1 is the name column
+  const cg = h('colgroup'); const cols = widths.map(w => h('col', { style: w ? { width: w + 'px' } : {} })); cg.append(...cols); tb.prepend(cg); tb.classList.add('kvfix');
+  const cur = () => (store && store.get()) || kvAutoWidth(getKeys());
+  const apply = () => { cols[1].style.width = cur() + 'px'; };
+  const handle = () => {
+    const bar = h('div', { class: 'kvres', title: LM('Drag to resize, double click for auto width') });
+    bar.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return; e.preventDefault(); bar.setPointerCapture(e.pointerId); const x0 = e.clientX, w0 = cols[1].getBoundingClientRect().width; const max = Math.max(120, tb.getBoundingClientRect().width * 0.8);
+      const mv = ev => { cols[1].style.width = Math.round(Math.min(max, Math.max(60, w0 + ev.clientX - x0))) + 'px'; tb.classList.add('kvdrag'); };
+      const up = () => { bar.removeEventListener('pointermove', mv); bar.removeEventListener('pointerup', up); bar.removeEventListener('pointercancel', up); tb.classList.remove('kvdrag'); const w = Math.round(cols[1].getBoundingClientRect().width); if (store && Math.abs(w - w0) > 1) store.set(w); };
+      bar.addEventListener('pointermove', mv); bar.addEventListener('pointerup', up); bar.addEventListener('pointercancel', up);
+    });
+    bar.addEventListener('dblclick', e => { e.preventDefault(); e.stopPropagation(); if (store) store.set(null); apply(); });
+    return bar;
+  };
+  apply(); return { apply, handle, auto: () => !(store && store.get()) };
+}
 // ---------- request editor ----------
 const mkBtn = (label, cls, fn, attrs) => h('button', { class: cls || '', onClick: fn, ...(attrs || {}) }, label);
-function kvTable({ rows, onChange, keyPh, valPh, withType, addTitle }) {
-  const tb = h('table', { class: 'kv' });
-  const draw = () => { tb.textContent = '';
+function kvTable({ rows, onChange, keyPh, valPh, withType, addTitle, store }) {
+  const tb = h('table', { class: 'kv' }); const grid = kvColumns(tb, withType ? [24, 0, 76, 0, 30] : [24, 0, 0, 30], () => rows.map(r => r.key), store);
+  const draw = () => { [...tb.children].forEach(c => { if (c.tagName !== 'COLGROUP') c.remove(); }); grid.apply();
     rows.forEach((row, i) => {
-      const k = hlInput({ value: row.key || '', placeholder: keyPh || T('req.key'), onInput: v => { row.key = v; onChange(); } });
+      const k = hlInput({ value: row.key || '', placeholder: keyPh || T('req.key'), onInput: v => { row.key = v; if (grid.auto()) grid.apply(); onChange(); } });
       const v = row.type === 'file' ? h('div', { class: 'row' }, h('span', { class: 'mono hint grow' }, row.src ? row.src.split(/[\\/]/).pop() : LM('No file selected')), mkBtn(LM('Select file…'), '', async () => { const p = await pw.pickFile(); if (p) { reqTouch(); row.src = p; onChange(); draw(); } })) : hlInput({ value: row.value || '', placeholder: valPh || T('req.value'), onInput: x => { row.value = x; onChange(); } });
       const en = h('input', { type: 'checkbox', checked: !row.disabled, onChange: e => { reqTouch(); row.disabled = !e.target.checked; onChange(); } });
       const ty = withType ? h('select', { onChange: e => { reqTouch(); row.type = e.target.value; onChange(); draw(); } }, [['text', LM('Text')], ['file', LM('File')]].map(([o, l]) => h('option', { value: o, selected: (row.type || 'text') === o }, l))) : null;
-      tb.append(h('tr', {}, h('td', { style: { width: '24px' } }, en), h('td', { style: { width: '34%' } }, k), ty ? h('td', { style: { width: '76px' } }, ty) : null, h('td', {}, v), h('td', { style: { width: '30px' } }, iconBtn('minus', T('btn.delete'), () => { reqTouch(); rows.splice(i, 1); onChange(); draw(); }, 'danger', 17))));
+      tb.append(h('tr', {}, h('td', { style: { width: '24px' } }, en), h('td', { class: 'kvk' }, k, grid.handle()), ty ? h('td', { style: { width: '76px' } }, ty) : null, h('td', {}, v), h('td', { style: { width: '30px' } }, iconBtn('minus', T('btn.delete'), () => { reqTouch(); rows.splice(i, 1); onChange(); draw(); }, 'danger', 17))));
     });
-    tb.append(h('tr', { class: 'addrow' }, h('td'), h('td', { colspan: 4 }, h('button', { onClick: () => { reqTouch(); rows.push({ key: '', value: '' }); onChange(); draw(); const ins = tb.querySelectorAll('tr'); const last = ins[ins.length - 2]; if (last) last.querySelector('input[type=text]').focus(); } }, addTitle || LM('Add header')))));
+    tb.append(h('tr', { class: 'addrow' }, h('td'), h('td', { colspan: withType ? 4 : 3 }, h('button', { onClick: () => { reqTouch(); rows.push({ key: '', value: '' }); onChange(); draw(); const ins = tb.querySelectorAll('tr'); const last = ins[ins.length - 2]; if (last) last.querySelector('input[type=text]').focus(); } }, addTitle || LM('Add header')))));
   }; draw(); return tb;
 }
 function headersTab(r) {
@@ -303,13 +328,13 @@ function headersTab(r) {
       for (const x of inh) { const over = r.request.header.some(o => lc(o.key) === lc(x.key)); g.append(h('div', { class: 'lockrow' }, ic('lock', 12), h('span', { class: 'k' }, x.key), h('span', { class: 'v' + (over ? ' over' : ''), title: x.value }, x.value), h('span', { class: 'grow', style: { flex: 1 } }), h('span', { class: 'hint' }, LM('from %@', x.from) + (over ? LM(' · overridden below') : '')))); }
       wrap.append(g); }
     if (r._pw.authError) wrap.append(h('div', { class: 'authbanner' + (r._pw.authAlert ? ' alert' : '') }, h('span', { class: 'status-bad' }, ic('warn', 13), T('req.authError'))));
-    const tb = h('table', { class: 'kv' });
+    const tb = h('table', { class: 'kv' }); const grid = kvColumns(tb, [24, 0, 0, 30], () => r.request.header.map(x => x.key), { get: () => r._pw.kvw, set: w => { if (w) r._pw.kvw = w; else delete r._pw.kvw; reqTouch(); } });
     r.request.header.forEach((row, i) => {
-      const k = hlInput({ value: row.key || '', placeholder: T('req.key'), onInput: v => { row.key = v; reqTouch(); } }); const v = hlInput({ value: row.value || '', placeholder: T('req.value'), onInput: x => { row.value = x; reqTouch(); } });
+      const k = hlInput({ value: row.key || '', placeholder: T('req.key'), onInput: v => { row.key = v; if (grid.auto()) grid.apply(); reqTouch(); } }); const v = hlInput({ value: row.value || '', placeholder: T('req.value'), onInput: x => { row.value = x; reqTouch(); } });
       const bad = r._pw.authError && lc(row.key) === 'authorization';
-      tb.append(h('tr', { 'data-auth': lc(row.key) === 'authorization' ? '1' : null }, h('td', { style: { width: '24px' } }, h('input', { type: 'checkbox', checked: !row.disabled, onChange: e => { reqTouch(); row.disabled = !e.target.checked; draw(); } })), h('td', { style: { width: '34%' } }, h('div', { class: 'row' }, bad ? h('span', { class: 'errmark', title: T('req.authError') }, ic('warn', 13)) : null, h('div', { class: 'grow' }, k))), h('td', { colspan: 2 }, v), h('td', { style: { width: '30px' } }, iconBtn('minus', T('btn.delete'), () => { reqTouch(); r.request.header.splice(i, 1); draw(); }, 'danger', 17))));
+      tb.append(h('tr', { 'data-auth': lc(row.key) === 'authorization' ? '1' : null }, h('td', { style: { width: '24px' } }, h('input', { type: 'checkbox', checked: !row.disabled, onChange: e => { reqTouch(); row.disabled = !e.target.checked; draw(); } })), h('td', { class: 'kvk' }, h('div', { class: 'row' }, bad ? h('span', { class: 'errmark', title: T('req.authError') }, ic('warn', 13)) : null, h('div', { class: 'grow' }, k)), grid.handle()), h('td', {}, v), h('td', { style: { width: '30px' } }, iconBtn('minus', T('btn.delete'), () => { reqTouch(); r.request.header.splice(i, 1); draw(); }, 'danger', 17))));
     });
-    tb.append(h('tr', { class: 'addrow' }, h('td'), h('td', { colspan: 4 }, h('button', { onClick: () => { reqTouch(); r.request.header.push({ key: '', value: '' }); draw(); const rows = wrap.querySelectorAll('tr'); const l = rows[rows.length - 2]; if (l) l.querySelector('input[type=text]').focus(); } }, LM('Add header')))));
+    tb.append(h('tr', { class: 'addrow' }, h('td'), h('td', { colspan: 3 }, h('button', { onClick: () => { reqTouch(); r.request.header.push({ key: '', value: '' }); draw(); const rows = wrap.querySelectorAll('tr'); const l = rows[rows.length - 2]; if (l) l.querySelector('input[type=text]').focus(); } }, LM('Add header')))));
     wrap.append(tb);
     const auto = autoHeaders(r);
     if (auto.length) { const sec = h('div', { class: 'autosec' }, h('div', { class: 'gt' }, LM('Auto-generated headers (added by the runtime when the request is sent)')));
@@ -331,8 +356,8 @@ function bodyTab(r) {
     const bar = h('div', { class: 'row', style: { gap: '10px', flexWrap: 'wrap' } }, tabStrip(modes, mode, setMode));
     wrap.append(bar);
     if (mode === 'none') wrap.append(h('div', { class: 'empty' }, LM('This request does not have a body')));
-    else if (mode === 'formdata') wrap.append(kvTable({ rows: b.formdata, onChange: () => { reqTouch(); refreshHeaders(); }, withType: true, addTitle: LM('Add field') }));
-    else if (mode === 'urlencoded') wrap.append(kvTable({ rows: b.urlencoded, onChange: () => { reqTouch(); }, addTitle: LM('Add field') }));
+    else if (mode === 'formdata') wrap.append(kvTable({ rows: b.formdata, onChange: () => { reqTouch(); refreshHeaders(); }, withType: true, addTitle: LM('Add field'), store: { get: () => r._pw.kvw, set: w => { if (w) r._pw.kvw = w; else delete r._pw.kvw; reqTouch(); } } }));
+    else if (mode === 'urlencoded') wrap.append(kvTable({ rows: b.urlencoded, onChange: () => { reqTouch(); }, addTitle: LM('Add field'), store: { get: () => r._pw.kvw, set: w => { if (w) r._pw.kvw = w; else delete r._pw.kvw; reqTouch(); } } }));
     else if (mode === 'binary') { const f = b.src || b.file?.src || ''; wrap.append(h('div', { class: 'row' }, ic('file', 15), h('span', { class: 'mono' }, f ? f.split(/[\\/]/).pop() : LM('No file selected')), mkBtn(LM('Select file…'), '', async () => { const p = await pw.pickFile(); if (p) { reqTouch(); b.src = p; b.mode = 'file'; draw(); } }), f ? mkBtn(LM('Remove'), '', () => { reqTouch(); b.src = ''; if (b.file) b.file.src = ''; draw(); }) : null), h('div', { class: 'hint' }, LM('The file is sent as the raw body. It is copied into the storage folder (files).'))); }
     else { b.options = b.options || { raw: { language: 'json' } }; const lang = b.options.raw?.language || 'json';
       const sel = h('select', { style: { width: '130px' }, onChange: e => { reqTouch(); b.options.raw = { language: e.target.value }; draw(); refreshHeaders(); } }, [['text', 'Text'], ['json', 'JSON'], ['javascript', 'JavaScript'], ['html', 'HTML'], ['xml', 'XML']].map(([v, l]) => h('option', { value: v, selected: lang === v }, l)));
@@ -358,6 +383,12 @@ function renderRequestPane() {
   const name = h('input', { type: 'text', class: 'nm-in', id: 'namein', value: r.name, placeholder: LM('Name'), onInput: e => { reqTouch(); r.name = e.target.value; renderTree(); } });
   const method = h('select', { id: 'method', onChange: e => { reqTouch(); r.request.method = e.target.value; renderTree(); } }, ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'].map(m => h('option', { value: m, selected: r.request.method === m }, m)));
   const url = hlInput({ value: reqUrl(r), placeholder: T('req.url'), id: 'urlin', onInput: v => { reqTouch(); setUrl(r, v); if ((r._pw.tab || 'body') === 'params') renderRequestTabBody(); } });
+  // URL field: double click = word (native), triple click = the part between "/" and "/", four clicks = the whole address
+  url.input.addEventListener('mousedown', e => {
+    if (e.button !== 0 || e.detail < 3) return; const inp = url.input, v = inp.value; e.preventDefault();
+    if (e.detail >= 4) { inp.setSelectionRange(0, v.length); return; }
+    const r = slashRange(v, inp.selectionStart); if (r) inp.setSelectionRange(r[0], r[1]); else inp.setSelectionRange(0, v.length); // empty piece (between //): select everything
+  });
   url.input.addEventListener('focus', () => { if (S.settings && S.resultOpen && !S.running) { S.resultOpen = false; renderView(false); } }); // auto-hide result when editing the URL
   const send = h('button', { class: 'pri', onClick: () => sendRequest(r) }, LM('Run'));
   const curlBtn = h('button', { class: 'codebtn' + (S.curlOpen ? ' on' : ''), title: 'curl', onClick: () => { S.curlOpen = !S.curlOpen; renderView(false); } }, '</>');
@@ -375,7 +406,7 @@ function paintReqTabs(r) {
 const schedulePersistTab = debounce(() => { const r = activeReq(); if (r && !isDraft(r) && S.settings.autosave) pw.saveCollection(snapshotForSave()); }, 800);
 function renderRequestTabBody() {
   const r = activeReq(); if (!r || !reqPane || !reqPane.body) return; const cur = r._pw.tab || 'body'; const b = reqPane.body; b.textContent = ''; b.style.display = '';
-  if (cur === 'params') { const rows = paramsOf(r); b.append(kvTable({ rows, onChange: () => { applyParams(r, rows); reqPane.url.input.value = reqUrl(r); reqPane.url.repaint(); refreshReqTabs(); }, keyPh: T('req.key'), valPh: T('req.value'), addTitle: LM('Add parameter') })); }
+  if (cur === 'params') { const rows = paramsOf(r); b.append(kvTable({ rows, onChange: () => { applyParams(r, rows); reqPane.url.input.value = reqUrl(r); reqPane.url.repaint(); refreshReqTabs(); }, keyPh: T('req.key'), valPh: T('req.value'), addTitle: LM('Add parameter'), store: { get: () => r._pw.kvw, set: w => { if (w) r._pw.kvw = w; else delete r._pw.kvw; reqTouch(); } } })); }
   else if (cur === 'headers') { const t = headersTab(r); refreshHeaders = () => t.redraw(); b.append(t); }
   else if (cur === 'body') { const t = bodyTab(r); b.append(t); b.style.display = 'flex'; }
   else if (cur === 'history') { b.append(historyPane(r)); b.style.display = 'flex'; }
@@ -388,7 +419,7 @@ function folderEditor(f) {
   const name = h('input', { type: 'text', class: 'nm-in', value: f.name, onChange: e => { const v = e.target.value.trim(); if (v && v !== f.name) listEdit('rename', () => { f.name = v; }); } });
   root.append(h('div', { class: 'titlerow' }, name, mkBtn(LM('Run'), 'pri', () => runSelected())), h('div', { class: 'row' }, tabStrip([['headers', LM('Headers')], ['bulk', LM('Bulk edit')]], mode, k => { S.folderMode.set(f.id, k); renderView(); })));
   if (mode === 'headers') { let before = clone(rows); const commit = debounce(() => { const after = clone(rows); if (JSON.stringify(before) !== JSON.stringify(after)) { const b0 = before; pushUndo({ scope: 'list', label: 'folder headers', undo() { f._pw.headers.splice(0, f._pw.headers.length, ...clone(b0)); }, redo() { f._pw.headers.splice(0, f._pw.headers.length, ...clone(after)); } }); before = after; } markStructure(); }, 600);
-    root.append(h('div', { class: 'hint' }, LM("Applied automatically to every nested request and shown there as read-only. A request's own header with the same name overrides it. When exporting, they are written into each request.")), kvTable({ rows, onChange: commit, addTitle: LM('Add header') })); }
+    root.append(h('div', { class: 'hint' }, LM("Applied automatically to every nested request and shown there as read-only. A request's own header with the same name overrides it. When exporting, they are written into each request.")), kvTable({ rows, onChange: commit, addTitle: LM('Add header'), store: { get: () => f._pw.kvw, set: w => { if (w) f._pw.kvw = w; else delete f._pw.kvw; markStructure(); } } })); }
   else root.append(bulkEditor(f));
   return root;
 }

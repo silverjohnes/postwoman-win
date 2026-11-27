@@ -240,3 +240,10 @@ select option,select optgroup{background:var(--bg2);color:var(--tx)}
 ::-webkit-scrollbar-thumb{background:var(--fill3)}::-webkit-scrollbar-thumb:hover{background:var(--tx2)}
 
 .mk-link{text-decoration:underline;text-underline-offset:2px}body.ctrl-down .mk-link{cursor:pointer}
+
+table.kvfix{table-layout:fixed}
+table.kv td.kvk{position:relative}
+.kvres{position:absolute;top:0;bottom:0;right:-3px;width:7px;cursor:col-resize;z-index:3}
+.kvres::after{content:"";position:absolute;left:3px;top:3px;bottom:3px;width:1px;background:var(--bd)}
+.kvres:hover::after,table.kvdrag .kvres::after{background:var(--ac2)}
+table.kvdrag{user-select:none}

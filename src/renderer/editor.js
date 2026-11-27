@@ -127,6 +127,11 @@ function quotedRange(text, pos) {
   }
   return null;
 }
+// text between the slashes around pos (URL line: triple click). null when there is nothing between them
+function slashRange(text, pos) {
+  let st = pos > 0 ? text.lastIndexOf('/', pos - 1) + 1 : 0; let en = text.indexOf('/', pos); if (en < 0) en = text.length;
+  return en > st ? [st, en] : null;
+}
 // ---------- links: http(s) URLs are underlined and open on Ctrl+click ----------
 const LINK_RE = /https?:\/\/[^\s"'<>`\\{}|^]+/g;
 function findLinks(text) {
@@ -383,4 +388,4 @@ class Viewer {
   }
 }
 let _toastT; function toast(msg) { let t = document.getElementById('toast'); if (!t) { t = h('div', { id: 'toast' }); document.body.append(t); } t.textContent = msg; t.classList.add('on'); clearTimeout(_toastT); _toastT = setTimeout(() => t.classList.remove('on'), 1600); }
-if (typeof module !== 'undefined') module.exports = { beautify, tokenize, queryVariants, findAll, quotedRange, findLinks };
+if (typeof module !== 'undefined') module.exports = { beautify, tokenize, queryVariants, findAll, quotedRange, findLinks, slashRange };
